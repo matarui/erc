@@ -1,0 +1,390 @@
+---
+title: "ERC"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE)
+
+library(tidyverse)
+library(readxl)
+library(eurostat)
+library(countrycode)
+library(ggplot2)
+library(ggrepel)
+library(patchwork)
+
+```
+
+
+```{r}
+# get GDP data
+
+# check out: https://ec.europa.eu/eurostat/statistics-explained/index.php?title=R%26D_expenditure&oldid=551418#Gross_domestic_expenditure_on_R.26D
+#data=get_eurostat("rd_e_gerdtot",time_format = "num")
+#write_csv(data,"gdp.csv")
+
+#data=get_eurostat("tsc00007",time_format = "num")
+#write_csv(data,"gdp.csv")
+
+gdp=read_csv("gdp.csv")
+
+gdp <- gdp %>% 
+  mutate(iso=countrycode(geo,origin="eurostat",destination = 'iso2c')) %>% 
+    filter(time>2015,
+         unit=="PC_GEXP",
+         !is.na(iso)) %>% 
+  group_by(iso) %>% 
+  summarize(gdp=mean(values)) %>% 
+  ungroup()
+  
+
+```
+
+```{r}
+
+starting_eval <- read_excel("starting_eval.xlsx")
+consolidator_eval <- read_excel("consolidator_eval.xlsx")
+advanced_eval <- read_excel("advanced_eval.xlsx")
+starting_granted <- read_excel("starting_granted.xlsx")
+consolidator_granted <- read_excel("consolidator_granted.xlsx")
+advanced_granted <- read_excel("advanced_granted.xlsx")
+
+starting_eval <- starting_eval %>% 
+  mutate(cat="starting") %>% 
+  pivot_longer("2007":"2021",names_to = "year",values_to = "number")
+
+consolidator_eval <- consolidator_eval %>% 
+  mutate(cat="consolidator") %>% 
+  pivot_longer("2013":"2021",names_to = "year",values_to = "number")
+
+advanced_eval <- advanced_eval %>% 
+  mutate(cat="advanced") %>% 
+  pivot_longer("2008":"2020",names_to = "year",values_to = "number")
+
+starting_granted <- starting_granted %>% 
+  mutate(cat="starting") %>% 
+  pivot_longer("2007":"2021",names_to = "year",values_to = "number")
+
+consolidator_granted <- consolidator_granted %>% 
+  mutate(cat="consolidator") %>% 
+  pivot_longer("2013":"2021",names_to = "year",values_to = "number")
+
+advanced_granted <- advanced_granted %>% 
+  mutate(cat="advanced") %>% 
+  pivot_longer("2008":"2020",names_to = "year",values_to = "number")
+
+starting<-left_join(starting_eval,starting_granted,by=c("Country","year","cat")) %>% 
+  rename(applied=number.x, 
+         granted=number.y) %>% 
+  mutate(granted=if_else(!is.na(applied) & is.na(granted),0,granted)) %>% 
+  mutate(rate=granted/applied*100) %>% 
+  mutate(year=as.Date(year,format='%Y')) %>% 
+  filter(!is.na(applied)) 
+
+consolidator<-left_join(consolidator_eval,consolidator_granted,by=c("Country","year","cat")) %>% 
+  rename(applied=number.x, 
+         granted=number.y) %>% 
+  mutate(granted=if_else(!is.na(applied) & is.na(granted),0,granted)) %>% 
+  mutate(rate=granted/applied*100) %>% 
+  mutate(year=as.Date(year,format='%Y')) %>% 
+  filter(!is.na(applied)) 
+
+advanced<-left_join(advanced_eval,advanced_granted,by=c("Country","year","cat")) %>% 
+  rename(applied=number.x, 
+         granted=number.y) %>% 
+  mutate(granted=if_else(!is.na(applied) & is.na(granted),0,granted)) %>% 
+  mutate(rate=granted/applied*100) %>% 
+  mutate(year=as.Date(year,format='%Y')) %>% 
+  filter(!is.na(applied)) 
+
+erc<-rbind(starting,consolidator,advanced) 
+
+erc<-erc %>% 
+  mutate(iso=countrycode(Country,origin="country.name",destination = 'iso2c'))
+
+```
+
+```{r}
+
+summary_erc <- erc %>% 
+  group_by(iso) %>% 
+  summarize(rate=median(rate)) 
+
+summary_gdp <- gdp %>% 
+  group_by(iso) %>% 
+  summarize(gdp=median(gdp)) %>% 
+  filter(!is.na(gdp))
+
+data=left_join(summary_erc,summary_gdp,by="iso")
+
+ggplot(data,aes(x=gdp,y=rate,label=iso)) +
+  geom_point(alpha=.4) +
+  geom_text_repel(size=5,min.segment.length = .25) +
+  theme_minimal() +
+  xlab("R&D (% GDP)") +
+  ylab("Success Rate (%)") +
+  theme(title=element_text(size=25),axis.title = element_text(size=20),axis.text = element_text(size=15)) +
+  xlim(0,3) +
+  ylim(0,25)
+
+ggsave("success_gdp.jpeg", width = 6, height = 4)
+
+selection_data <- data %>% 
+  filter(iso=="PT" | iso=="DE" | iso=="CH")
+
+ggplot(selection_data,aes(x=gdp,y=rate,label=iso)) +
+  geom_point(alpha=.4) +
+  geom_text_repel(size=5,min.segment.length = .25) +
+  theme_minimal() +
+  xlab("R&D (% GDP)") +
+  ylab("Success Rate (%)") +
+  theme(title=element_text(size=25),axis.title = element_text(size=20),axis.text = element_text(size=15)) +
+  xlim(0,3) +
+  ylim(0,25)
+
+ggsave("success_gdp_selection.jpeg", width = 6, height = 4)
+
+```
+
+
+## Success by GDP in R&D
+```{r}
+
+summary_erc <- erc %>% 
+  group_by(iso,cat) %>% 
+  summarize(rate=median(rate)) 
+
+
+summary_gdp <- gdp %>% 
+  group_by(iso) %>% 
+  summarize(gdp=median(gdp)) %>% 
+  filter(!is.na(gdp))
+
+data=left_join(summary_erc,summary_gdp,by="iso")
+
+ggplot(filter(data,cat=="starting"),aes(x=gdp,y=rate,label=iso)) +
+  labs(title = "STARTING") +
+  geom_text_repel(size=5) +
+  theme_minimal() +
+  xlab("R&D (% GDP)") +
+  ylab("Success Rate (%)") +
+  theme(title=element_text(size=25),axis.title = element_text(size=20),axis.text = element_text(size=15)) +
+  xlim(0,3) +
+  ylim(0,25)
+  
+ggplot(filter(data,cat=="consolidator"),aes(x=gdp,y=rate,label=iso)) +
+  labs(title = "CONSOLIDATOR") +
+  geom_text_repel(size=5) +
+  theme_minimal() +
+  xlab("R&D (% GDP)") +
+  ylab("Success Rate (%)") +
+  theme(title=element_text(size=25),axis.title = element_text(size=20),axis.text = element_text(size=15)) +
+  xlim(0,3) +
+  ylim(0,25)
+
+ggplot(filter(data,cat=="advanced"),aes(x=gdp,y=rate,label=iso)) +
+  labs(title = "ADVANCED") +
+  geom_text_repel(size=5) +
+  theme_minimal() +
+  xlab("R&D (% GDP)") +
+  ylab("Success Rate (%)") +
+  theme(title=element_text(size=25),axis.title = element_text(size=20),axis.text = element_text(size=15)) +
+  xlim(0,3) +
+  ylim(0,25)
+
+# PT, DE, CH
+
+selection_data <- data %>% 
+  filter(iso=="PT" | iso=="DE" | iso=="CH")
+
+ggplot(selection_data,aes(x=gdp,y=rate,label=iso)) +
+  geom_text_repel(size=5) +
+  theme_minimal() +
+  xlab("R&D (% GDP)") +
+  ylab("Success Rate (%)") +
+  theme(title=element_text(size=25),axis.title = element_text(size=20),axis.text = element_text(size=15)) +
+  xlim(0,3) +
+  ylim(0,25)
+
+ggsave("success_gdp_selection.jpeg", width = 6, height = 4)
+
+# ALL
+ggplot(data,aes(x=gdp,y=rate,label=iso)) +
+  geom_text_repel(size=5) +
+  theme_minimal() +
+  xlab("R&D (% GDP)") +
+  ylab("Success Rate (%)") +
+  theme(title=element_text(size=25),axis.title = element_text(size=20),axis.text = element_text(size=15)) +
+  xlim(0,3) +
+  ylim(0,25)
+
+ggsave("success_gdp.jpeg", width = 6, height = 4)
+```
+
+
+```{r}
+
+starting_selected<-starting %>% 
+  filter(Country == "Portugal" |
+         Country == "Germany" | 
+           Country == "Switzerland") 
+
+a<-ggplot(starting_selected,aes(x=year,y=rate,group=Country)) +
+    geom_point(alpha=.4) +
+    geom_smooth(method="loess",se=F,span=1.5) +
+    theme_minimal() +
+    xlim(c(lubridate::ymd("2005-01-01"),lubridate::ymd("2022-01-01"))) +
+    ylim(c(0,30)) +
+    ggtitle('STARTING') +
+    xlab("Year") +
+    ylab("Success Rate (%)")
+
+consolidator_selected<-consolidator %>% 
+  filter(Country == "Portugal" |
+         Country == "Germany" | 
+           Country == "Switzerland") 
+
+b<-ggplot(consolidator_selected,aes(x=year,y=rate,group=Country)) +
+    geom_point(alpha=.4) +
+    geom_smooth(method="loess",se=F,span=1.5) +
+    theme_minimal() +
+    xlim(c(lubridate::ymd("2005-01-01"),lubridate::ymd("2022-01-01"))) +
+    ylim(c(0,30)) +
+    ggtitle('CONSOLIDATOR') +
+    xlab("Year") +
+    ylab("Success Rate (%)")
+
+advanced_selected<-advanced %>% 
+  filter(Country == "Portugal" |
+         Country == "Germany" | 
+           Country == "Switzerland") 
+
+c<-ggplot(advanced_selected,aes(x=year,y=rate,group=Country)) +
+    geom_point(alpha=.4) +
+    geom_smooth(method="loess",se=F,span=1.5) +
+    theme_minimal() +
+    xlim(c(lubridate::ymd("2005-01-01"),lubridate::ymd("2022-01-01"))) +
+    ylim(c(0,30)) +
+    ggtitle('ADVANCED') +
+    xlab("Year") +
+    ylab("Success Rate (%)")
+
+
+a+b+c + plot_layout(guides = 'collect') &
+  theme(legend.position='bottom')
+
+ggsave("success_time.jpeg", width = 6, height = 4)
+
+```
+
+```{r}
+
+starting_eval <- read_excel("starting_eval.xlsx")
+consolidator_eval <- read_excel("consolidator_eval.xlsx")
+advanced_eval <- read_excel("advanced_eval.xlsx")
+starting_granted <- read_excel("starting_granted.xlsx")
+consolidator_granted <- read_excel("consolidator_granted.xlsx")
+advanced_granted <- read_excel("advanced_granted.xlsx")
+
+starting_eval <- starting_eval %>% 
+  mutate(type="eval") %>% 
+  mutate(cat="starting") %>% 
+  pivot_longer("2007":"2021",names_to = "year",values_to = "number")
+
+consolidator_eval <- consolidator_eval %>% 
+  mutate(type="eval") %>% 
+  mutate(cat="consolidator") %>% 
+  pivot_longer("2013":"2021",names_to = "year",values_to = "number")
+
+advanced_eval <- advanced_eval %>% 
+  mutate(type="eval") %>% 
+  mutate(cat="advanced") %>% 
+  pivot_longer("2008":"2020",names_to = "year",values_to = "number")
+
+
+starting_granted <- starting_granted %>% 
+  mutate(type="granted") %>% 
+  mutate(cat="starting") %>% 
+  pivot_longer("2007":"2021",names_to = "year",values_to = "number")
+
+consolidator_granted <- consolidator_granted %>% 
+  mutate(type="granted") %>% 
+  mutate(cat="consolidator") %>% 
+  pivot_longer("2013":"2021",names_to = "year",values_to = "number")
+
+advanced_granted <- advanced_granted %>% 
+  mutate(type="granted") %>% 
+  mutate(cat="advanced") %>% 
+  pivot_longer("2008":"2020",names_to = "year",values_to = "number")
+
+data<-rbind(starting_eval,consolidator_eval,advanced_eval,starting_granted,consolidator_granted,advanced_granted) %>% 
+  filter(!is.na(number)) %>% 
+  mutate(year=as.numeric(year))
+
+
+
+
+
+
+```
+
+## Portugal
+
+```{r}
+
+subdata<-data %>% 
+  #filter(year!=2007) %>% 
+  filter(type=="eval") %>% 
+    filter(Country=="Portugal")
+
+a<-ggplot(subdata,aes(x=year,y=number,color=cat)) +
+    geom_point() +
+    geom_smooth(method="loess",se=F) +
+    theme_minimal() +
+    facet_wrap(vars(type)) +
+    ggtitle('Applied')
+
+subdata<-data %>% 
+  #filter(year!=2007) %>% 
+  filter(type=="granted") %>% 
+    filter(Country=="Portugal")
+
+b<-ggplot(subdata,aes(x=year,y=number,color=cat)) +
+    geom_point() +
+    geom_smooth(method="loess",se=F) +
+    theme_minimal() +
+    ggtitle('Granted')
+
+a+b + plot_layout(guides = 'collect')
+```
+
+## Germany
+
+```{r}
+
+subdata<-data %>% 
+  #filter(year!=2007) %>% 
+  filter(type=="eval") %>% 
+    filter(Country=="Germany")
+
+a<-ggplot(subdata,aes(x=year,y=number,color=cat)) +
+    geom_point() +
+    geom_smooth(method="loess",se=F) +
+    theme_minimal() +
+    facet_wrap(vars(type)) +
+    ggtitle('Applied')
+
+subdata<-data %>% 
+  #filter(year!=2007) %>% 
+  filter(type=="granted") %>% 
+    filter(Country=="Germany")
+
+b<-ggplot(subdata,aes(x=year,y=number,color=cat)) +
+    geom_point() +
+    geom_smooth(method="loess",se=F) +
+    theme_minimal() +
+    ggtitle('Granted')
+
+a+b + plot_layout(guides = 'collect')
+```
