@@ -103,6 +103,9 @@ erc<-rbind(starting,consolidator,advanced)
 erc<-erc %>% 
   mutate(iso=countrycode(Country,origin="country.name",destination = 'iso2c'))
 
+mean(erc$granted/erc$applied*100)
+median(erc$granted/erc$applied*100)
+
 ```
 
 ```{r}
@@ -155,13 +158,16 @@ summary_erc <- erc %>%
   group_by(iso,cat) %>% 
   summarize(rate=median(rate)) 
 
-
 summary_gdp <- gdp %>% 
   group_by(iso) %>% 
-  summarize(gdp=median(gdp)) %>% 
-  filter(!is.na(gdp))
+  summarize(gdp=median(gdp)) 
 
 data=left_join(summary_erc,summary_gdp,by="iso")
+
+data<-data %>%  
+  filter(!is.na(gdp))
+
+median(data$rate)
 
 ggplot(filter(data,cat=="starting"),aes(x=gdp,y=rate,label=iso)) +
   labs(title = "STARTING") +
